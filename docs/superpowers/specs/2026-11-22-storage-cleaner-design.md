@@ -1,7 +1,8 @@
 # Storage Cleaner — design
 
 Date: 2026-11-22
-Status: awaiting approval
+Status: superseded on 2026-11-22. The owner chose to read the phone from the Mac over USB
+instead of installing an app. See the README for the current approach. Kept for reference.
 
 ## Goal
 
