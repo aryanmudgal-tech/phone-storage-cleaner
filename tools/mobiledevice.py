@@ -6,7 +6,7 @@ from Python values by round-tripping through binary property lists.
 """
 import ctypes
 import plistlib
-from ctypes import POINTER, byref, c_char_p, c_int, c_long, c_uint, c_ulong, c_void_p
+from ctypes import POINTER, byref, c_char_p, c_int, c_long, c_size_t, c_uint, c_ulong, c_ulonglong, c_void_p
 
 CF = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
 MD = ctypes.CDLL("/System/Library/PrivateFrameworks/MobileDevice.framework/MobileDevice")
@@ -158,6 +158,12 @@ MD.AFCKeyValueRead.restype = c_int
 MD.AFCKeyValueRead.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
 MD.AFCKeyValueClose.restype = c_int
 MD.AFCKeyValueClose.argtypes = [c_void_p]
+MD.AFCFileRefOpen.restype = c_int
+MD.AFCFileRefOpen.argtypes = [c_void_p, c_char_p, c_ulonglong, POINTER(c_ulonglong)]
+MD.AFCFileRefRead.restype = c_int
+MD.AFCFileRefRead.argtypes = [c_void_p, c_ulonglong, c_char_p, POINTER(c_size_t)]
+MD.AFCFileRefClose.restype = c_int
+MD.AFCFileRefClose.argtypes = [c_void_p, c_ulonglong]
 
 
 class Files:
@@ -211,3 +217,26 @@ class Files:
                 names.append(name)
         MD.AFCDirectoryClose(self._conn, handle)
         return names
+
+    def pull(self, path, destination, chunk=1 << 20):
+        """Copy one file from the phone to the Mac. Returns bytes copied."""
+        ref = c_ulonglong()
+        code = MD.AFCFileRefOpen(self._conn, path.encode(), 1, byref(ref))
+        if code != 0:
+            raise FileNotFoundError(f"{path} (0x{code & 0xFFFFFFFF:08x})")
+        buffer = ctypes.create_string_buffer(chunk)
+        copied = 0
+        try:
+            with open(destination, "wb") as out:
+                while True:
+                    size = c_size_t(chunk)
+                    code = MD.AFCFileRefRead(self._conn, ref, buffer, byref(size))
+                    if code != 0:
+                        raise IOError(f"read failed for {path} (0x{code & 0xFFFFFFFF:08x})")
+                    if size.value == 0:
+                        break
+                    out.write(buffer.raw[: size.value])
+                    copied += size.value
+        finally:
+            MD.AFCFileRefClose(self._conn, ref)
+        return copied
