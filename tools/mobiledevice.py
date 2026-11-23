@@ -126,3 +126,88 @@ class Device:
         if code != 0:
             raise RuntimeError(f"app lookup failed (0x{code & 0xFFFFFFFF:08x})")
         return to_python(out.value) or {}
+
+
+# --- File access (AFC) -------------------------------------------------------
+# AFC exposes the phone's media area: camera roll files, the Photos database,
+# music, books, recordings and downloads. It cannot see inside other apps.
+
+MD.AMDeviceSecureStartService.restype = c_int
+MD.AMDeviceSecureStartService.argtypes = [c_void_p, c_void_p, c_void_p, POINTER(c_void_p)]
+MD.AMDServiceConnectionGetSocket.restype = c_int
+MD.AMDServiceConnectionGetSocket.argtypes = [c_void_p]
+MD.AMDServiceConnectionGetSecureIOContext.restype = c_void_p
+MD.AMDServiceConnectionGetSecureIOContext.argtypes = [c_void_p]
+MD.AFCConnectionOpen.restype = c_int
+MD.AFCConnectionOpen.argtypes = [c_int, c_uint, POINTER(c_void_p)]
+MD.AFCConnectionSetSecureContext.restype = None
+MD.AFCConnectionSetSecureContext.argtypes = [c_void_p, c_void_p]
+MD.AFCConnectionClose.restype = c_int
+MD.AFCConnectionClose.argtypes = [c_void_p]
+MD.AFCDirectoryOpen.restype = c_int
+MD.AFCDirectoryOpen.argtypes = [c_void_p, c_char_p, POINTER(c_void_p)]
+MD.AFCDirectoryRead.restype = c_int
+MD.AFCDirectoryRead.argtypes = [c_void_p, c_void_p, POINTER(c_char_p)]
+MD.AFCDirectoryClose.restype = c_int
+MD.AFCDirectoryClose.argtypes = [c_void_p, c_void_p]
+MD.AFCFileInfoOpen.restype = c_int
+MD.AFCFileInfoOpen.argtypes = [c_void_p, c_char_p, POINTER(c_void_p)]
+MD.AFCDeviceInfoOpen.restype = c_int
+MD.AFCDeviceInfoOpen.argtypes = [c_void_p, POINTER(c_void_p)]
+MD.AFCKeyValueRead.restype = c_int
+MD.AFCKeyValueRead.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
+MD.AFCKeyValueClose.restype = c_int
+MD.AFCKeyValueClose.argtypes = [c_void_p]
+
+
+class Files:
+    """Read-only view of the phone's media area."""
+
+    def __init__(self, device):
+        service = c_void_p()
+        code = MD.AMDeviceSecureStartService(device.handle, cfstr("com.apple.afc"), None, byref(service))
+        if code != 0:
+            raise RuntimeError(f"file service failed (0x{code & 0xFFFFFFFF:08x})")
+        self._conn = c_void_p()
+        code = MD.AFCConnectionOpen(MD.AMDServiceConnectionGetSocket(service), 0, byref(self._conn))
+        if code != 0:
+            raise RuntimeError(f"file connection failed (0x{code & 0xFFFFFFFF:08x})")
+        secure = MD.AMDServiceConnectionGetSecureIOContext(service)
+        if secure:
+            MD.AFCConnectionSetSecureContext(self._conn, secure)
+
+    def _read_pairs(self, handle):
+        pairs = {}
+        key, value = c_char_p(), c_char_p()
+        while MD.AFCKeyValueRead(handle, byref(key), byref(value)) == 0 and key.value:
+            pairs[key.value.decode()] = (value.value or b"").decode()
+        MD.AFCKeyValueClose(handle)
+        return pairs
+
+    def volume(self):
+        """Filesystem totals reported by the phone."""
+        handle = c_void_p()
+        if MD.AFCDeviceInfoOpen(self._conn, byref(handle)) != 0:
+            return {}
+        return self._read_pairs(handle)
+
+    def info(self, path):
+        """Return file metadata (size, type, modified time) or None."""
+        handle = c_void_p()
+        if MD.AFCFileInfoOpen(self._conn, path.encode(), byref(handle)) != 0:
+            return None
+        return self._read_pairs(handle)
+
+    def listdir(self, path):
+        """Return the names inside a directory."""
+        handle = c_void_p()
+        if MD.AFCDirectoryOpen(self._conn, path.encode(), byref(handle)) != 0:
+            return []
+        names = []
+        entry = c_char_p()
+        while MD.AFCDirectoryRead(self._conn, handle, byref(entry)) == 0 and entry.value:
+            name = entry.value.decode(errors="replace")
+            if name not in (".", ".."):
+                names.append(name)
+        MD.AFCDirectoryClose(self._conn, handle)
+        return names
