@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Secrets — the Claude API key lives in the iOS Keychain, never in the repo
+.env
+.env.*
+Secrets.xcconfig
+*.secret
+
+# Claude Code local settings
+.claude/settings.local.json
