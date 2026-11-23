@@ -167,11 +167,18 @@ MD.AFCFileRefClose.argtypes = [c_void_p, c_ulonglong]
 
 
 class Files:
-    """Read-only view of the phone's media area."""
+    """Read-only view of one of the phone's file areas.
 
-    def __init__(self, device):
+    The default area is media (camera roll, Photos data, music). Pass
+    DIAGNOSTICS to see the crash and analytics logs instead.
+    """
+
+    MEDIA = "com.apple.afc"
+    DIAGNOSTICS = "com.apple.crashreportcopymobile"
+
+    def __init__(self, device, area=MEDIA):
         service = c_void_p()
-        code = MD.AMDeviceSecureStartService(device.handle, cfstr("com.apple.afc"), None, byref(service))
+        code = MD.AMDeviceSecureStartService(device.handle, cfstr(area), None, byref(service))
         if code != 0:
             raise RuntimeError(f"file service failed (0x{code & 0xFFFFFFFF:08x})")
         self._conn = c_void_p()
